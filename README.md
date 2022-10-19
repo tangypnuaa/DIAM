@@ -1,8 +1,8 @@
 ## Active Learning for Multiple Target Models
 
-Authors: Anonymous
+Authors: Ying-Peng Tang and Sheng-Jun Huang
 
-Implementation of the paper "Active Learning for Multiple Target Models". This work tries to select and label the most useful examples that are beneficial to multiple target models. The repository include the code of training/testing models, active data selection of all compared methods, plot and generate the figures and tables in the paper. (**This work is under blind reviewing, please do not distribute.**)
+Official implementation of the paper "Active Learning for Multiple Target Models". This work tries to select and label the most useful examples that are beneficial to multiple target models. The repository include the code of training/testing models, active data selection of all compared methods, plot and generate the figures and tables in the paper.
 
 ## Main requirements
 
@@ -10,7 +10,7 @@ This project is based on [once-for-all](https://github.com/mit-han-lab/once-for-
 
 Additional requirements:
 
--  alipy
+- alipy
 - scikit-learn
 - tqdm
 
@@ -38,35 +38,35 @@ bash iter_all.sh 2 4
 
 Next, we present the usage of each individual function.
 
-#####Training Model
+##### Training Model
 
 ```
 # usage: python train_net.py --net_id [int: 0, 1, 2, ..., 11] --dataset ['mnist', 'kmnist'] --al_iter [int: 0, 1, 2, ..., 10] --method = ["margin", "entropy", "least_conf", "coreset", "random", "CAL", "DIAM"]
 python train_net.py --net_id 0 --dataset mnist --al_iter 0 --method entropy
 ```
 
-#####Active Query
+##### Active Query
 
 ```
 # usage: python al_select.py --method [$METHOD] --dataset [$DATASET] --al_iter [int: 0, 1, 2, ..., 10] --batch_size [active query batch size] --model_num [number_of_target_models]
 python al_select.py --method entropy --dataset mnist --al_iter 0 --batch_size 1500 --model_num 12
 ```
 
-#####Test Models
+##### Test Models
 
 ```
 # usage: python test_multi_models.py --dataset [$DATASET] --method [$METHOD] --al_iter [$ITER] --model_num [number_of_target_models]
 python test_multi_models.py --dataset mnist --method entropy --al_iter 0 --model_num 12
 ```
 
-#####Plot the Results
+##### Plot the Results
 
 After obtaining the results of each compared method, use the following command to plot the learning curves:
 ```
 python plot.py
 ```
 
-#####Extra: Reproduce the Results in the Paper
+##### Extra: Reproduce the Results in the Paper
 
 All the random seeds are fixed in the program for the convenience of reproducing the results. To this end, please run the following command to run the experiments, i.e., perform active learning with different numbers of target models:
 ```
@@ -99,4 +99,9 @@ Please refer to the paper for more results.
 
 ## Citing this repository
 
-TBD
+  @inproceedings{tang2022diam,
+    title={Active Learning for Multiple Target Models},
+    author={Tang, Ying-Peng and Huang, Sheng-Jun},
+    booktitle={NeurIPS},
+    year={2022}
+  }
