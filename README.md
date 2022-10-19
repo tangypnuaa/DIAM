@@ -24,7 +24,7 @@ The target models are taken from a recent NAS work [once-for-all](https://github
 
 ## Usage
 
-#####Script to Run the Entire Experiments
+##### Script to Run the Entire Experiments
 
 We provide the `iter_all.sh`  script to run the active learning iterations, which include the training/testing, active selection functions. Invoke the script by the following:
 
@@ -99,9 +99,11 @@ Please refer to the paper for more results.
 
 ## Citing this repository
 
-  @inproceedings{tang2022diam,
-    title={Active Learning for Multiple Target Models},
-    author={Tang, Ying-Peng and Huang, Sheng-Jun},
-    booktitle={NeurIPS},
-    year={2022}
-  }
+```
+@inproceedings{tang2022diam,
+  title={Active Learning for Multiple Target Models},
+  author={Tang, Ying-Peng and Huang, Sheng-Jun},
+  booktitle={NeurIPS},
+  year={2022}
+}
+```
