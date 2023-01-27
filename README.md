@@ -97,7 +97,7 @@ The learning curves with the mean accuracy of the target models of the compared 
 
 Please refer to the paper for more results.
 
-## Citing this repository
+## Please cite our work
 
 ```
 @inproceedings{tang2022diam,
