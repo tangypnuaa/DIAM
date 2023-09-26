@@ -30,6 +30,7 @@ parser.add_argument(
         "random",
         "CAL",
         "DIAM",
+        "DIAM_qp",
     ],
 )
 parser.add_argument(
@@ -39,6 +40,9 @@ parser.add_argument(
     choices=[
         "mnist",
         "kmnist",
+        "fmnist",
+        "emnistlet",
+        "emnistdig",
     ],
 )
 parser.add_argument("--al_iter", type=int, default=0)

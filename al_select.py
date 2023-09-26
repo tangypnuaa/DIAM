@@ -1,12 +1,19 @@
 import argparse
 import os
-
+from sklearn import preprocessing
+import itertools
+import qpsolvers
+import copy
+import pickle
+import time
 import alipy
 import numpy as np
 import torch
 import torch.nn.functional as F
 from sklearn import preprocessing
 from tqdm import tqdm
+from sklearn.metrics import pairwise_distances
+from scipy import sparse
 
 from load_test_models import load_test_models
 from ofa.imagenet_classification.networks import MobileNetV3Large
@@ -25,6 +32,7 @@ parser.add_argument(
         "random",
         "CAL",
         "DIAM",
+        "DIAM_qp",
     ],
 )
 parser.add_argument(
@@ -34,12 +42,16 @@ parser.add_argument(
     choices=[
         "mnist",
         "kmnist",
+        "fmnist",
+        "emnistlet",
+        "emnistdig",
     ],
 )
 parser.add_argument("--batch_size", type=int, default=1500)
 parser.add_argument("--save_root", type=str, default="./al_results")
 parser.add_argument("--al_iter", type=int, default=0)
 parser.add_argument("--model_num", type=int, default=12)
+parser.add_argument("--DIAMq", type=float, default=1.0)
 
 args = parser.parse_args()
 if args.al_iter == 0:
@@ -192,6 +204,52 @@ class ALScoringFunctions:
         np.random.shuffle(selected)
         selected = selected[:self.batch_size]
         return [self.unlab_idx[i] for i in selected]
+    
+
+    def DIAM_qp(self, nn_mat, q_coef=1.0):
+        """This version is introduced in our extended paper, which further considers the diversity in batch mode querying."""
+        global ofa_checkpoint_root
+        flist = os.listdir(os.path.join(ofa_checkpoint_root, '0', "checkpoint"))
+        pt_list = [fi for fi in flist if fi.endswith('.pt')]
+        pt_list = sorted(pt_list)
+        all_votes = torch.zeros([len(pt_list), args.model_num, len(self.unlab_idx)])
+        for ipt, pt in enumerate(pt_list):
+            for i in range(args.model_num):
+                ofa_unlab_pred_root = os.path.join(ofa_checkpoint_root, str(i), "checkpoint")
+                pre_mat = torch.load(os.path.join(ofa_unlab_pred_root, pt))
+                all_votes[ipt, i] = pre_mat
+        first_order = []
+        second_order = []
+        for voter in range(args.model_num):
+            votes = all_votes[:, voter, :]
+            is_dis = (torch.amax(votes, dim=0) != torch.amin(votes, dim=0))
+            first_order.append(is_dis.numpy())
+        first_order = np.sum(first_order, axis=0)
+        subsample_num = min(len(first_order) // 5, 15000)
+        subsample_ids = np.argsort(first_order)[-subsample_num:]
+
+        print("start solving qp...")
+        nn_mat = (nn_mat.T + nn_mat)/2
+        # nn_mat may not be PSD matrix, find the nearest one
+        try:
+            np.linalg.cholesky(nn_mat)
+        except np.linalg.LinAlgError:
+            eigval, eigvec = np.linalg.eig(nn_mat.toarray())
+            # eigval, eigvec = sparse.linalg.eigsh(nn_mat, k=nn_mat.shape[0] // 2)
+            eigval[eigval < 0] = 0
+            nn_mat = torch.tensor(eigvec).to("cuda") @ torch.diag(torch.tensor(eigval)).to("cuda") @ torch.tensor(eigvec.T).to("cuda")
+            nn_mat = nn_mat.cpu().numpy()
+        sqp = qpsolvers.solve_qp(P=nn_mat,
+                                 q=-q_coef * np.asarray(first_order[subsample_ids], dtype=np.float64),
+                                 A=np.ones((1, subsample_num), dtype=np.float64),
+                                 b=np.asarray([self.batch_size], dtype=np.float64),
+                                 lb=np.zeros((subsample_num,), dtype=np.float64),
+                                 ub=np.ones((subsample_num,), dtype=np.float64),
+                                 solver="osqp")
+        # sort
+        sorted_args = np.argsort(sqp)
+        selected = sorted_args[-self.batch_size:]
+        return [self.unlab_idx[subsample_ids[i]] for i in selected]
 
 
 if __name__ == "__main__":
@@ -268,6 +326,45 @@ if __name__ == "__main__":
             mean_all_scores = np.mean(all_scores, axis=0)
             selected_idx = np.argsort(mean_all_scores)[:args.batch_size]
             selected_idx = [unlab_idx[i] for i in selected_idx]
+        elif args.method == "DIAM_qp":
+            if os.path.exists(f"./DIAM_mid/knn_{args.dataset}_{args.al_iter}_{args.DIAMq}.pkl"):
+                with open(f"./DIAM_mid/knn_{args.dataset}_{args.al_iter}_{args.DIAMq}.pkl", "rb") as f:
+                    knn_mat = pickle.load(f)
+            else:
+                os.makedirs("DIAM_mid", exist_ok=True)
+                # knn_mat = sparse.lil_matrix((len(unlab_idx), len(unlab_idx)), dtype=np.int8)
+                for rs in tqdm(range(args.model_num), desc="test models"):
+                    ofa_net_weight = os.path.join(ofa_checkpoint_root, str(rs), "checkpoint/checkpoint.pth.tar")
+                    net, image_size = load_test_models(net_id=rs, n_classes=NCLASSES, trained_weights=ofa_net_weight)
+                    net.cuda()
+                    qs = ALScoringFunctions(batch_size=args.batch_size,
+                                            n_classes=NCLASSES,
+                                            unlab_idx=unlab_idx,
+                                            net=net,
+                                            dataloader=unlab_dataloader)
+
+                    qs._get_proba_pred()
+                    if rs == 0:
+                        subsample_ids = qs.DIS(None, get_subsample_ids=True)
+                        knn_mat = sparse.lil_matrix((len(subsample_ids), len(subsample_ids)), dtype=np.int16)
+                    divorifea = qs.embeddings.cpu().numpy()
+                    divorifea = divorifea[subsample_ids, :]
+                    nnn = int(len(subsample_ids) * 0.01)
+                    kmat = pairwise_distances(divorifea, divorifea, n_jobs=-1)
+                    largest_ids = np.argsort(kmat, axis=1)[:, :nnn]
+                    for illar, llar in enumerate(largest_ids):
+                        indices = list(itertools.product([illar], llar))
+                        for idis in indices:
+                            knn_mat[idis] += 1
+                    del kmat, largest_ids, indices, divorifea, net
+                with open(f"./DIAM_mid/knn_{args.dataset}_{args.al_iter}_{args.DIAMq}.pkl", "wb") as f:
+                    pickle.dump(knn_mat, f)
+            qs = ALScoringFunctions(batch_size=args.batch_size,
+                                    n_classes=NCLASSES,
+                                    unlab_idx=unlab_idx,
+                                    net=None,
+                                    dataloader=unlab_dataloader)
+            selected_idx = qs.DIAM_qp(sparse.csr_matrix(knn_mat, dtype=np.float64), q_coef=args.DIAMq)
         else:
             qs = ALScoringFunctions(batch_size=args.batch_size,
                                     n_classes=NCLASSES,
